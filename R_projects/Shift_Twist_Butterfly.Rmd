@@ -1,9 +1,7 @@
 ---
-title: "Test 6 Smirnov Ivan 316"
+title: "Smirnov Ivan"
 output: html_notebook
 ---
-## вариант 3
-
 ```{r}
 rates <- read.csv("rates.csv", header = TRUE )
 head(rates)
