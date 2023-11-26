@@ -1,5 +1,5 @@
 ---
-title: "Test 8 Smirnov 316"
+title: "Smirnov Ivan"
 output: html_notebook
 ---
 
