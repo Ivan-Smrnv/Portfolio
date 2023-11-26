@@ -1,0 +1,267 @@
+---
+title: "Test 8 Smirnov 316"
+output: html_notebook
+---
+
+```{r}
+library(copula)
+data <- readRDS('Copula_Test/var_23.rds')
+names(data)
+```
+
+```{r}
+data$predictor_DistrType
+```
+```{r}
+data$output_DistrType
+```
+
+
+```{r}
+plot(data$predictor,data$output,main = 'predictor vs output', col = 'green', pch = 20, xlab = 'predictor', ylab = 'output')
+```
+
+
+```{r}
+predictor_output <- cbind(data$predictor,data$output)
+e_cop <- pobs(predictor_output)
+plot(e_cop[,1],e_cop[,2],pch = 20, main ="pobs(predictor vs output) ",col = "blue")
+```
+
+```{r}
+#Normal copula
+  normal_copula <- normalCopula(param=0,dim=2)
+#Student copula
+  t_copula <- ellipCopula(family = "t",param = 0,dim = 2)
+#Frank copula
+  Frank_copula <- frankCopula(param=5,dim=2)
+#Clayton
+  Clayton_copula <- claytonCopula(param=5,dim=2)
+```
+
+```{r}
+library(latticeExtra)
+```
+
+```{r}
+normal_copula.fit <- fitCopula(normal_copula, 
+                               e_cop, 
+                               method = "ml", 
+                               optim.control = list(maxit=1000))
+normal_parameters <- normal_copula.fit@copula@parameters
+normal_parameters
+```
+
+```{r}
+t_copula.fit <- fitCopula(t_copula, 
+                          e_cop, 
+                          method = "ml", 
+                          optim.control = list(maxit=1000))
+t_parameters <- t_copula.fit@copula@parameters
+t_parameters
+```
+
+
+```{r}
+Frank_copula.fit <- fitCopula(Frank_copula, 
+                              e_cop, 
+                              method = "ml", 
+                              optim.control = list(maxit=1000))
+Frank_parameters <- Frank_copula.fit@copula@parameters
+Frank_parameters
+```
+
+
+```{r}
+myFitCopula <- function(Clayton_copula,data,method = 'ml'){
+  tryCatch('ecuting more than one expression you need curly braces.')
+    {
+      y = fitCopula(Clayton_copula,data,method)
+      return(y)
+    }
+    error=function(error_message) {
+      return(NA)
+    }
+}
+```
+
+
+```{r}
+clayton_fit<-myFitCopula(Clayton_copula,e_cop,"ml")
+if (is.na(clayton_fit))
+{  
+   сlayton_loglik <- 0
+   clayton_parameters <- 4
+} else
+{  
+   clayton_loglik <-clayton_fit@loglik
+   clayton_parameters <- clayton_fit@copula@parameters
+}   
+```
+
+```{r}
+Clayton_copula.fit<-fitCopula(Clayton_copula, 
+                               e_cop, 
+                               method = "ml",
+                               optim.control = list(maxit=1000))
+Clayton_parameters <- Clayton_copula.fit@copula@parameters
+Clayton_parameters
+```
+
+```{r}
+Clayton_parameters
+```
+
+Посмотрим на оценки максимального правдоподобия
+```{r}
+normal_copula.fit@loglik
+```
+
+```{r}
+t_copula.fit@loglik 
+```
+
+```{r}
+Frank_copula.fit@loglik
+```
+
+```{r}
+Clayton_copula.fit@loglik
+```
+
+```{r}
+best_parameters <- Clayton_parameters
+```
+
+```{r}
+persp(Clayton_copula, dCopula, main="pdf",xlab="u", ylab="v", zlab="c(u,v)")
+```
+
+```{r}
+contour(Clayton_copula,dCopula, main="pdf",xlab="u", ylab="v")
+```
+
+
+```{r}
+data$predictor_DistrType
+```
+
+```{r}
+data$predictor_DistrParameters
+```
+```{r}
+data$output_DistrType
+```
+
+```{r}
+data$output_DistrParameters
+```
+
+
+```{r}
+predictor.copula <- plnorm(data$predictor, mean=data$predictor_DistrParameters[1], sdlog=data$predictor_DistrParameters[2])
+output.copula <- pnorm(data$output, mean=data$output_DistrParameters[1], sd=data$output_DistrParameters[2])
+```
+
+### 8. Постройте копулу согласно частным распределениям
+
+```{r}
+plot(predictor.copula,output.copula,main = 'predictor vs output. Marginal Distribution Copula', 
+     col = 'green',pch = 20,xlab = 'predictor', ylab = 'output')
+```
+
+### 9.Вычислите квантиль для уровня 95%, для заданных частных распределений. Лучшей выбрана Clayton копула.
+```{r}
+quantileLevel <- function(numCopula, copula, theta, alpha)
+{
+  if (numCopula == 1)
+  #Gaussian
+  {
+    q <- pnorm(qnorm(alpha) *sqrt(1-theta*theta)  + theta* qnorm(copula[,1]))
+  }
+  if (numCopula == 2)
+  #Student
+  {
+  
+  }
+  if (numCopula == 3)
+  #Frank
+  {
+    
+  }
+  if (numCopula == 4)
+  #Clayton
+  {
+    q <- ((alpha ^ (- theta / (1 + theta)) - 1) * (copula[, 1] ^ -theta) + 1) ^ -(1 / theta)
+  }
+  return(q)  
+}
+
+copula <- cbind(predictor.copula, output.copula)
+alpha <- 0.95
+copulanum <- 4
+parameters <- Clayton_copula.fit@copula@parameters
+quantile <- quantileLevel(copulanum, copula, parameters,alpha)
+# quantile
+```
+
+### 10.Определите аномальные пары переменных для которых переменная output в копуле превосходит квантиль. Определяем индексы таких переменных.
+```{r}
+(anomalindex <- which(copula[,2]>quantile))
+```
+
+Рисуем копулу, цветом выделяем аномальные значения
+```{r}
+plot(copula[,1], copula[,2], pch=20, col="blue", main="quatile level 95%")
+points(copula[,1], quantile, col="green", pch = 20)
+points(copula[anomalindex, 1], copula[anomalindex, 2], col="magenta", pch=20)
+```
+
+### 11.Находим аномальные переменные в исходных pedictor и output.
+Создадим для их хранения переменные anomal_predictor и anomal_output
+```{r}
+anomal_predictor <- data$predictor[anomalindex]
+anomal_output <- data$output[anomalindex]
+head(anomal_predictor)
+```
+
+```{r}
+head(anomal_output)
+```
+
+Выделим цветом пары аномальных переменных
+```{r}
+plot(predictor_output[,1], predictor_output[,2], pch=20, col="blue", main="Predict vs Output.Anomalies")
+points(predictor_output[anomalindex,1], predictor_output[anomalindex,2], pch=20, col="red")
+```
+Выведем результаты в отдельный файл
+```{r}
+variant <- 23
+copulaNames <- c("normal", "student", "clayton","frank")
+copulaName <-copulaNames[3]
+copulaName
+```
+
+
+```{r}
+myResult <- list(variant = variant,
+                 copulaName = copulaName,
+                 predictor.copula = predictor.copula,
+                 output.copula = output.copula,  
+                 best_parameters = best_parameters,
+                 anomal_predictor= anomal_predictor,
+                 anomal_output= anomal_output)
+
+saveRDS(myResult,"result.rds")
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+
+

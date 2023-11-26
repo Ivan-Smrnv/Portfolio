@@ -1,0 +1,173 @@
+---
+title: "Smirnov_Ivan"
+output: html_notebook
+---
+
+## Данные по количеству летальных исходов от короновируса
+
+Скачаем необходимые данные из библиотеки за период с начала июня 2022 по конец 2022 года.
+```{r}
+library(COVID19)
+download <- function(country)
+{
+  country_data<-covid19(country,level =1,start='2022-06-01',end='2022-12-31')
+  head(country_data)
+  country_data <- country_data[,c(2,3:7)]
+  return (country_data)
+}  
+country <- "Russia"
+data <- download(country)
+```
+
+```{r}
+head(data)
+```
+
+```{r}
+tail(data)
+```
+
+
+```{r}
+time_series <- ts(data$deaths)
+plot(time_series, type = "l", col = "blue",lwd = 2,main = "time_ser of deaths.Russia")
+```
+
+Библиотека дает накопленные данные с начала пандемии, чтобы получить ежедневное количество заболевших просто возьмем разность по дням.
+
+```{r}
+n <-length(data$deaths)
+deaths_day <- diff(data$deaths)
+plot(data$date[2:n], deaths_day,col='blue', main='Deaths Russia', type='l')
+```
+Скачаем данные для отправки на проверку:
+```{r}
+download_data <- deaths_day
+write.csv(download_data, "variant_19.csv", row.names=FALSE)
+```
+  
+Ежедневные данные также представляют собой нестационарный ряд по дисперсии, поэтому возьмем еще раз одну разность. Таким образом, получим ряд ежедневных изменений количества умерших.
+```{r}
+deaths_day_diff <- diff(deaths_day)
+plot(data$date[3:n], deaths_day_diff, col='blue', main='Deaths Russia', type='l')
+```
+Оценим ACF,PACF
+```{r}
+deaths_day_diff_acf = acf(deaths_day_diff, lwd = 3, main = "ACF", col = "blue", lag.max=100)
+```
+
+Из графика ACF видим, что модель не ARMA не включает в себя скользящее среднее.
+
+Посмотрим какой график PACF:
+```{r}
+deaths_day_diff_pacf= pacf(deaths_day_diff, lwd = 3, main = "PACF", col = "blue", lag.max=100)
+```
+
+По графику PACF видно, что период сезонности равен 7, AR = 7 или 8, SAR = 1
+
+Построим две наиболее вероятные модели и сравним результаты по критерию Акаике
+SARMA(7,0,0)(1,0,0)
+```{r}
+model_1 <- arima(deaths_day_diff, order = c(7,0,0), seasonal = list(order= c(1,0,0), period = 7 ), method = "ML")
+cat('AIC: ', model_1$aic)
+```
+
+SARMA(8,0,0)(1,0,0)
+```{r}
+model_2 <- arima(deaths_day_diff, order = c(8,0,0),seasonal = list(order= c(1,0,0),period = 7 ),method = "ML")
+cat('AIC: ', model_2$aic)
+```
+
+Как видим первая модель с параметрами period = 7, AR = 7, SAR = 1 дала результат лучше.
+
+#### Исследуем остатки
+
+```{r}
+acf(model_1$residuals, lwd = 3, main = "Residuals ACF", col = "blue", lag.max=100)
+```
+
+```{r}
+pacf(model_1$residuals, lwd = 3, main = "Residuals PACF", col = "blue", lag.max=100)
+```
+ Похоже, что порядок AR может быть равен 9, хотя изначально значение PACF на данной задержке было незначительно.
+ Проверим это, построив новую модель SARMA(9,0,0)(1,0,0):
+```{r}
+model_3 <- arima(deaths_day_diff, order = c(9,0,0), seasonal = list(order= c(1,0,0), period = 7 ), method = "ML")
+cat('AIC: ', model_3$aic)
+```
+Действительно, критерий Акаике на такой модели лучше
+
+```{r}
+library(lmtest)
+coeftest(model_3)
+```
+```{r}
+acf(model_3$residuals, lwd = 3, main = "Residuals ACF", col = "blue", lag.max=100)
+```
+```{r}
+pacf(model_3$residuals, lwd = 3, main = "Residuals PACF", col = "blue", lag.max=100)
+```
+
+Посмотрим на тест Льюинг-Бокса
+```{r}
+ Box.test(model_3$residuals, lag = 20, type = "Ljung-Box", fitdf = 2)
+```
+Исходя из значения p-value, гипотезу о некоррелированности остатков не отвергаем.
+
+
+Проверим распределение
+```{r}
+qqnorm(model_3$residuals)
+qqline(model_3$residuals)
+```
+Похоже, что остатки распределены нормально.
+
+#### Построим периодограмму спектральной плотности к начальным данным и к остаткам после удаления модели
+```{r}
+library(TSA)
+```
+
+```{r}
+k3 <- kernel('daniell',c(5,5,5))
+
+sp = spec(deaths_day_diff, kernel=k3,log='no',sub='', 
+          xlab='Frequency', col = "blue", lwd = 2, main='Smoothed Periodogram')
+sp_ARMA = spec(model_3$residuals, kernel=k3,log='no',sub='', 
+               xlab='Frequency', col = "green", lwd = 2, main='Smoothed Periodogram', plot=F)
+lines(sp_ARMA$freq,sp_ARMA$spec,col='green',lwd=2)
+legend("topleft",c("Original data","SARMA(9,0,0)(1,0,0) resid."),lwd = 2, col=c("blue","green"))
+```
+Показатели периодограммы довольно хорошие.
+
+#### Построим прогноз и 95% доверительные интервалы на 1 период сезонности вперёд
+```{r}
+n <- length(deaths_day_diff)
+plot(x=(1 : n), y=deaths_day_diff, col='blue', main='Deaths Russia', xlab = "month", type='l')
+model_3_forecast <- predict(model_3, n.ahead = 7)$pred
+model_3_forecast_se <- predict(model_3, n.ahead = 7)$se
+points(x=(n+1 : 7), y = model_3_forecast, type = "l", col = "red")
+points(x=(n+1 : 7), y = model_3_forecast - model_3_forecast_se, type = "l", col = "black", lty = 2)
+points(x=(n+1 : 7), y = model_3_forecast + model_3_forecast_se, type = "l", col = "black", lty = 2)
+
+```
+
+#### Построим прогноз по аддитивной сезонной модели Holta-Winters
+```{r}
+n <- length(deaths_day_diff)
+deaths_day_diff <- ts(diff(deaths_day), frequency=7)
+past <- window(deaths_day_diff)
+model <- HoltWinters(past, seasonal = "additive")
+pred <- predict(model, n.ahead = 12)
+plot(model,predicted.values = pred,lwd=2)
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,112 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Импортируем данные для регрессионного анализа котировок дневных цен закрытия предложенных в варианте 3 инструментов.
+
+```{r}
+dataPath <- './data'
+Stocs <- read.table(paste(dataPath,'Stocs.csv',sep = '/'), header=TRUE,sep=',')
+len <- dim(Stocs)[1]
+Stocs$DATE <- as.Date(Stocs$DATE[1:len],"%d/%m/%y")
+rownames(Stocs) <- Stocs$DATE
+Stocs$DATE <- NULL
+
+head(Stocs)
+```
+
+## Перейдём к логарифмическим доходностям
+
+```{r}
+PalladiumCLOSE <- diff(log(Stocs$PalladiumCLOSE))
+SANDCLOSE <- diff(log(Stocs$SANDCLOSE))
+GoldCLOSE <- diff(log(Stocs$GoldCLOSE))
+BRNCLOSE <- diff(log(Stocs$BRNCLOSE))
+PlatinumCLOSE <- diff(log(Stocs$PlatinumCLOSE))
+PlumbumCLOSE <- diff(log(Stocs$PlumbumCLOSE))
+CuprumCLOSE <- diff(log(Stocs$CuprumCLOSE))
+SilverCLOSE <- diff(log(Stocs$SilverCLOSE))
+rates <- cbind(PalladiumCLOSE, SANDCLOSE, GoldCLOSE, BRNCLOSE, PlatinumCLOSE, PlumbumCLOSE, CuprumCLOSE, SilverCLOSE)
+
+rates <- as.data.frame(rates)
+rownames(rates) <- rownames(Stocs)[2:len]
+ 
+head(rates)
+```
+
+```{r}
+regrRates <-  lm(rates$PalladiumCLOSE ~ rates$SANDCLOSE + rates$GoldCLOSE + rates$BRNCLOSE + rates$PlatinumCLOSE + rates$PlumbumCLOSE + rates$CuprumCLOSE + rates$SilverCLOSE, data=rates)
+summary(regrRates)
+```
+
+Таким образом, получили, что значимыми предикторами являются золото (GoldCLOSE ), платина (PlatinumCLOSE) и медь (CuprumCLOSE), так как их p-value < 0.05 в полученной модели.  
+Модель не является вырожденной, так как существенно зависит от трёх названных выше предикторов, а именно от золота, платины и меди.
+
+## Переоценим модель только для значимых переменных
+
+```{r}
+regrRates1 <-  lm(rates$PalladiumCLOSE ~ rates$GoldCLOSE + rates$PlatinumCLOSE + rates$CuprumCLOSE  -1, data=rates)
+ summary(regrRates1)
+```
+Визуализируем результаты
+```{r}
+plot(rates$PalladiumCLOSE, type = "b", col='deepskyblue4', xlab='Date', main='Palladium Rates.')
+lines(regrRates1$fitted.values,col='firebrick1',lwd=3)
+```
+
+Остатки после удаления регрессии
+```{r}
+plot(regrRates1$residuals ,type = "b",col='blue4',xlab='Time',main='Palladium Residuals.')
+```
+
+Построим гистограмму остатков
+```{r}
+hist(rstudent(regrRates1),xlab='Standardized Residuals', col = "blue")
+```
+Из гистограммы видим, что остатки, похоже, имеют логистическое распределение
+
+
+```{r}
+qqnorm(rstudent(regrRates1),col="red")
+```
+
+```{r}
+shapiro.test((rstudent(regrRates1)))
+```
+Тест Шапиро-Вилка отвергает гипотезу о нормальности распределения.
+
+Воспользуемся функцией fit.cont для определения наиболее подходящего распределения
+```{r}
+library(rriskDistributions)
+fit.cont(data2fit = rstudent(regrRates1))
+```
+Таким образом, наиболее подходящее распределение логистическое.
+
+### Проверим критерий Колмогорова-Смирнова для логистического распределения 
+
+Оценим параметры распределения на тренировочной выборке
+```{r}
+d = sort(sample(length(rstudent(regrRates1)), length(rstudent(regrRates1))*0.5))
+train<-rstudent(regrRates1)[d]
+test<-rstudent(regrRates1)[-d]
+library(fitdistrplus)
+fitting_norm <- fitdistr(train,"logistic")
+fitting_norm
+```
+```{r}
+location <- -0.09838504
+scale <- 0.57776277 
+ks.test(test, "plogis", location, scale)
+```
+P-value > 0.05, поэтому гипотеза о логистическом распределении остатков не отвергается.
+
+## Исследуем остатки на некоррелированность
+```{r}
+acf(rstudent(regrRates1))
+```
+Как видим присутствует коррелируемость данных.
+
+
